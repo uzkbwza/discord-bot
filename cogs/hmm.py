@@ -54,7 +54,8 @@ class Hmm(commands.Cog):
     async def level_user_for_word(self, word, message):
         author = message.author
         await self.level_up_role(author, word)
-        lvl = self.highest_lvl(author, word)
+        author_roles = self.get_roles(author, word)
+        lvl = self.highest_lvl(author_roles)
         if lvl % 25 == 0 and lvl > 0 and (lvl % 50 == 0 or lvl < 100) or lvl == 10:
             await message.channel.send("Congrats, {0.mention}, you have advanced to {1} level {2}!".format(author, word.word, lvl))
         
@@ -85,31 +86,34 @@ class Hmm(commands.Cog):
     
     def get_roles(self, guild_or_member, word):
         # matches for "<word> lvl <level>"
+        print("getting roles for {0} associated with {1}".format(word.rolename, guild_or_member.name))
         return [role for role in guild_or_member.roles if re.fullmatch(word.rolename +r"\d+", role.name)] 
 
     async def level_up_role(self, member, word):
+        user_roles = self.get_roles(member, word)
+        guild_roles = self.get_roles(member.guild, word)
         # get user level
-        user_lvl = self.highest_lvl(member, word)
+        user_lvl = self.highest_lvl(user_roles)
         # dont level up past the max level
         if user_lvl >= self.max_level:
             return
         # check and make sure next hmm lvl exists
-        guild_lvl = self.highest_lvl(member.guild, word)
-        if not self.lvl_exists(member.guild, user_lvl + 1, word):
+        guild_lvl = self.highest_lvl(guild_roles)
+        if not self.lvl_exists(guild_roles, user_lvl + 1):
             await member.guild.create_role(
                 name=word.rolename + str(user_lvl + 1),
                 color=self.choose_role_color(user_lvl + 1))
-        role_to_add = self.get_lvl_role(member.guild, user_lvl + 1, word)
+        role_to_add = self.get_lvl_role(guild_roles, user_lvl + 1)
         print(role_to_add)
         await self.bot.wait_until_ready()
         # add role to member
         await member.add_roles(role_to_add)
         await asyncio.sleep(0.5)
+        # update user roles with the latest one added
         await self.remove_extras(member, word)
 
         
-    def highest_lvl(self, guild_or_member, word):
-        roles = self.get_roles(guild_or_member, word)
+    def highest_lvl(self, roles):
         highest = 0
         for role in roles:
             role_level = role.name.split(' ')[-1]
@@ -119,14 +123,13 @@ class Hmm(commands.Cog):
     
     async def remove_extras(self, member, word):
         roles = self.get_roles(member, word)
-        highest = self.highest_lvl(member, word)
+        highest = self.highest_lvl(roles)
         for role in roles:
             role_level = role.name.split(' ')[-1]
             if int(role_level) < highest:
                 await member.remove_roles(role)
 
-    def lvl_exists(self, guild, lvl, word):
-        roles = self.get_roles(guild, word)
+    def lvl_exists(self, roles, lvl):
         print([role.name.split(' ')[-1] for role in roles])
         for role in roles:
             role_level = role.name.split(' ')[-1]
@@ -136,9 +139,8 @@ class Hmm(commands.Cog):
         print("role lvl {} DOES NOT exist!".format(lvl))
         return False
     
-    def get_lvl_role(self, guild, lvl, word):
-        if self.lvl_exists(guild, lvl, word):
-            roles = self.get_roles(guild, word)
+    def get_lvl_role(self, roles, lvl):
+        if self.lvl_exists(roles, lvl):
             for role in roles:
                 role_level = role.name.split(' ')[-1]
                 if int(role_level) == lvl:

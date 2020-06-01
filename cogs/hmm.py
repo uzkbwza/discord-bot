@@ -128,7 +128,6 @@ class Hmm(commands.Cog):
         # add role to member
         print("* adding role to member")
         await member.add_roles(role_to_add)
-        await asyncio.sleep(0.25)
         await self.remove_extras(member, user_roles)
         
     def highest_lvl(self, roles):

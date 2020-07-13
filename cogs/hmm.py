@@ -21,7 +21,8 @@ class Hmm(commands.Cog):
         Word("perhaps", r"\b(per|may)haps"),
         Word("aaaahhhh",  r"\ba+((r+)?g+)?h+\b", emoji="aaahhh"),
         Word("ok", r"\bo+k+((a+y+)|(ie+)|(ey))?\b"),
-        Word("choon", r"\bhttps://clyp.it/", file_extensions=["mp3", "wav", "ogg", "flac"])
+        Word("choon", r"\bhttps://clyp.it/", file_extensions=["mp3", "wav", "ogg", "flac"]),
+        Word("yes", r"\by+e+s+\b")
     ]
     max_level = 200
 

@@ -146,7 +146,7 @@ class Hmm(commands.Cog):
             await channel.send("Congrats, {0.mention}, you have advanced to {1} level {2}!".format(member, word.word, lvl))
 
         if overall_level % 50 == 0 and overall_level > 0:
-            await channel.send("Congrats, {0.mention}, you have reached an overall power level of {2}!!".format(member, word.word, level))
+            await channel.send("Congrats, {0.mention}, you have reached an overall power level of {2}!!".format(member, word.word, overall_level))
 
         self.save_user(member, user)
 

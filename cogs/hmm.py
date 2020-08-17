@@ -1,7 +1,9 @@
-from discord.ext import commands
 import re
 import discord
-import asyncio
+import json
+import os 
+import discord
+from discord.ext import commands
 
 class Word():
     def __init__(self, word, re, emoji=None, file_extensions=None):
@@ -16,13 +18,19 @@ class Word():
 
 class Hmm(commands.Cog):
     words = [
-        Word("hmm",  r"\bh+(r+)?m+"),
-        Word("mmh",  r"\bm+(r+)?h+"),
+        Word("hmm", r"\bh+(r+)?m+"),
+        Word("mmh", r"\bm+(r+)?h+"),
         Word("perhaps", r"\b(per|may)haps"),
-        Word("aaaahhhh",  r"\ba+((r+)?g+)?h+\b", emoji="aaahhh"),
+        Word("aaaahhhh", r"\ba+((r+)?g+)?h+\b", emoji="aaahhh"),
         Word("ok", r"\bo+k+((a+y+)|(ie+)|(ey))?\b"),
+        Word("yes", r"\by+e+s+\b"),
+        Word("haha", r"(\b(b+a+|a+)?((h+a+)+))"),
+        Word("lmao", r"lm(f?)ao+"),
+        Word("rofl", r"ro(t?)fl+", emoji="🤣"),
+        Word("lol", r"\bl((o|e|u)+l+)+\b"),
+        Word("no", r"\b(no+(p(e+)?)?)+(n)?\b"),
+        Word("cade", r"\b(ca(de|t))(s)?|kitt(en|y|ie(s)?)|meow|nya(n)?\b"),
         Word("choon", r"\bhttps://clyp.it/", file_extensions=["mp3", "wav", "ogg", "flac"]),
-        Word("yes", r"\by+e+s+\b")
     ]
     max_level = 200
 
@@ -31,16 +39,49 @@ class Hmm(commands.Cog):
         print("loaded hmm")
 
     @commands.Cog.listener()
+    async def on_ready(self):
+        pass
+
+    @commands.command()
+    async def stats(self, ctx):
+        author = ctx.message.author
+        self.refresh_stats(author)
+        for mention in ctx.message.mentions:
+            author = mention
+        user = self.load_user_stats(author)
+        stats = []
+        if user:
+            stats = sorted(
+                    [key for key in user.keys() if user[key] > 0],
+                    key=lambda x: user[x],
+                    reverse=True
+            )
+        level = self.get_level(user)
+        print(level)
+
+        embed = discord.Embed(
+                title="{0} [Level {1}]".format(author.name, level),
+                color=self.choose_level_color(level)
+        )
+        for stat in stats:
+            embed.add_field(name=stat, value="lv. {}".format(user[stat]), inline=True,)
+        # await ctx.channel.send("Stats for {0.mention}:\n{1}"
+        #       .format(ctx.message.author, stats_string))
+        await ctx.channel.send(embed=embed)
+
+    @commands.Cog.listener()
     async def on_message(self, message):   
         if message.author == self.bot.user:
             return         
-        # check message for each trigger
+
         for word in self.words:
             if self.word_matches_message(word, message):
                 await self.bot.wait_until_ready()
+                print("sending")
                 print ("** leveling user {0} for:  \"{1}\"".format(message.author.name, message.content))
                 await self.level_user_for_word(word, message)
                 print("** done. \n")
+
 
     def word_matches_message(self, word, message):
         text = message.content
@@ -54,114 +95,105 @@ class Hmm(commands.Cog):
         return False
 
     async def level_user_for_word(self, word, message):
+        print(word.word)
         author = message.author
-        await self.level_up_role(author, word)
-        author_roles = await self.get_roles(author, word)
-        lvl = self.highest_lvl(author_roles)
-        if lvl % 25 == 0 and lvl > 0 and (lvl % 50 == 0 or lvl < 100) or lvl == 10:
-            await message.channel.send("Congrats, {0.mention}, you have advanced to {1} level {2}!".format(author, word.word, lvl))
-        
+        await self.level_up(author, word, message.channel)
+
         emoji = discord.utils.get(message.guild.emojis, name=(word.emoji))
         if emoji:
+            print(emoji)
             await message.add_reaction(emoji)
+        else:
+            await message.add_reaction(word.emoji)
             
-    def choose_role_color(self, lvl):
-        if lvl >= 200:
+    def choose_level_color(self, lvl):
+        if lvl >= 1000:
             return discord.Color.purple()
-        if lvl >= 150:
+        if lvl >= 500:
             return discord.Color.dark_blue()
-        if lvl >= 100:
+        if lvl >= 200:
             return discord.Color.gold()
-        if lvl >= 75:
+        if lvl >= 175:
             return discord.Color.dark_gold()
-        if lvl >= 50:
+        if lvl >= 150:
             return discord.Color.blue()
-        if lvl >= 25:
+        if lvl >= 100:
             return discord.Color.red()
-        if lvl >= 10:
+        if lvl >= 50:
             return discord.Color.teal()
-        if lvl >= 5:
+        if lvl >= 25:
             return discord.Color.dark_red()
         if lvl >= 1:
             return discord.Color.dark_magenta()
         return discord.Color.default()
     
-    async def get_roles(self, guild_or_member, word):
-        # matches for "<word> lvl <level>"
-        print(" getting roles for {0} .. associated with {1}".format(word.word, guild_or_member.name))
-        if isinstance(guild_or_member, discord.Guild):
-            print("* fetching guild roles")
-            roles = await guild_or_member.fetch_roles()
+    def get_level(self, user):
+        stats = [user[stat] for stat in user.keys()]
+        if len(stats) > 0:
+            overall_level = sum(stats)
         else:
-            roles = guild_or_member.roles
-        roles = [role for role in roles if re.fullmatch(word.rolename +r"\d+", role.name)]
-        return roles
+            overall_level = 0
+        return overall_level
 
-    async def level_up_role(self, member, word):
-        print("* getting roles for {0} for user and guild...".format(word.word))
-        user_roles = await self.get_roles(member, word)
-        guild_roles = await self.get_roles(member.guild, word)
-        # get user level
-        print("* Highest level for user: ")
-        user_lvl = self.highest_lvl(user_roles)
-        # dont level up past the max level
-        if user_lvl >= self.max_level:
-            print("* user is already max level, returning")
-            return
-        # check and make sure next hmm lvl exists
-        print("* Highest level for guild: ")
-        guild_lvl = self.highest_lvl(guild_roles)
-        new_user_lvl = user_lvl + 1
-        # make role if it doesnt exist
-        if not self.lvl_exists(guild_roles, new_user_lvl):
-            print("* creating new role for {0}{1}".format(word.rolename, new_user_lvl))
-            await member.guild.create_role(
-                name=word.rolename + str(new_user_lvl),
-                color=self.choose_role_color(new_user_lvl))
-            # update guild roles
-            print("* updating guild roles with new role")
-        # update guild roles to reflect new one
-        print("* getting updated list of guild roles")
-        guild_roles = await self.get_roles(member.guild, word)
-        print("* get new role to add to user")
-        role_to_add = self.get_lvl_role(guild_roles, new_user_lvl)
-        print("* new role: {}".format(role_to_add))
-        # add role to member
-        print("* adding role to member")
-        await member.add_roles(role_to_add)
-        await self.remove_extras(member, user_roles)
+    async def level_up(self, member, word, channel):
+        user = self.load_user_stats(member)
+        lvl = user[word.word] + 1
+        user[word.word] = lvl
+        print(user)
+
+        overall_level = self.get_level(user)
+
+        if lvl % 25 == 0 and lvl > 0 and (lvl % 50 == 0 or lvl < 100) or lvl == 10:
+            await channel.send("Congrats, {0.mention}, you have advanced to {1} level {2}!".format(member, word.word, lvl))
+
+        if overall_level % 50 == 0 and overall_level > 0:
+            await channel.send("Congrats, {0.mention}, you have reached an overall power level of {2}!!".format(member, word.word, level))
+
+        self.save_user(member, user)
+
+    def save_user(self, member, user_stats):
+        for word in self.words:
+            if word.word not in user_stats:
+                user_stats[word.word] = 0
+            else:
+                user_stats[word.word] = int(user_stats[word.word])
+
+        guild_id = str(member.guild.id)
+        member_id = str(member.id)
+        if not os.path.exists("cogs/hmm/roles/" + guild_id):
+            os.mkdir("cogs/hmm/roles/" + guild_id)
+
+        filename = "cogs/hmm/roles/" + guild_id + "/" + member_id + ".json"
+
+        structure = { 
+                "name" : member.name,
+                "stats" : user_stats
+        }
+        data = json.dumps(structure)
+        # print(data)
+        with open(filename, "w") as f:
+            data = json.loads(data)
+            json.dump(data, f, indent=2, separators=(',', ': '))
+
+    def load_user_stats(self, member):
+        guild_id = str(member.guild.id)
+        member_id = str(member.id)
+        filename = "cogs/hmm/roles/" + guild_id + "/" + member_id + ".json"
+        if os.path.exists(filename):
+            with open(filename, "r") as f:
+                js = f.read()
+                js = json.loads(js)
+                print(js)
+                if "stats" in js:
+                    return js["stats"]
+        else:
+            self.save_user(member, {})
+            self.load_user_stats(member)
+
+    def refresh_stats(self, member):
+        user = self.load_user_stats(member)
+        self.save_user(member, user)
         
-    def highest_lvl(self, roles):
-        print("finding highest level")
-        highest = 0
-        for role in roles:
-            role_level = role.name.split(' ')[-1]
-            if int(role_level) > highest:
-                highest = int(role_level)
-        print("highest: {}".format(highest))
-        return highest
-    
-    async def remove_extras(self, member, roles):
-        print("removing extra roles from member")
-        for role in roles:
-            await member.remove_roles(role)
-
-    def lvl_exists(self, roles, lvl):
-        for role in roles:
-            role_level = role.name.split(' ')[-1]
-            if int(role_level) == lvl:
-                print("role lvl {} DOES exist!".format(lvl))
-                return True
-        print("role lvl {} DOES NOT exist!".format(lvl))
-        return False
-    
-    def get_lvl_role(self, roles, lvl):
-        if self.lvl_exists(roles, lvl):
-            for role in roles:
-                role_level = role.name.split(' ')[-1]
-                if int(role_level) == lvl:
-                    return role
-        return None
 
 def setup(bot):
     bot.add_cog(Hmm(bot))

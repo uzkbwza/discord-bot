@@ -32,7 +32,6 @@ class Hmm(commands.Cog):
         Word("cade", r"\b(ca(de|t))(s)?|kitt(en|y|ie(s)?)|meow|nya(n)?\b"),
         Word("choon", r"\bhttps://clyp.it/", file_extensions=["mp3", "wav", "ogg", "flac"]),
     ]
-    max_level = 200
 
     def __init__(self, bot):
         self.bot = bot

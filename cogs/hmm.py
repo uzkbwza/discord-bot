@@ -73,6 +73,7 @@ class Hmm(commands.Cog):
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
+        print("joined " + guild.name)
         for user in guild.users:
             self.load_user_stats(user)
 
@@ -106,7 +107,15 @@ class Hmm(commands.Cog):
 
     @commands.command()
     async def invite(self, ctx):
-        await ctx.channel.send("https://discord.com/api/oauth2/authorize?client_id=714976319921717268&permissions=8&scope=bot")
+        image=ctx.guild.me.avatar_url
+        embed=discord.Embed(
+                title="Invite me to your server!", 
+                description="""**[🔵 Admin](https://discord.com/api/oauth2/authorize?client_id=714976319921717268&permissions=8&scope=bot)
+                [🔴 Non-admin](https://discord.com/api/oauth2/authorize?client_id=714976319921717268&permissions=134205376&scope=bot)** (potentially fewer features)""",
+                )
+        embed.set_thumbnail(url=image)
+
+        await ctx.channel.send(embed=embed)
 
     @commands.command()
     async def stats(self, ctx):

@@ -1,3 +1,5 @@
+#!/usr/bin/python3
+
 import discord
 import os
 from discord.ext import commands
@@ -10,7 +12,7 @@ async def on_ready():
 
 def is_owner():
     async def predicate(ctx):
-        return ctx.author.id == int('YOUR ID HERE')
+        return ctx.author.id == int("YOUR ID HERE")
     return commands.check(predicate)
 
 class Meta(commands.Cog):
@@ -57,8 +59,12 @@ class Meta(commands.Cog):
 
 bot.add_cog(Meta(bot))
 
-for filename in os.listdir('./cogs'):
+for filename in os.listdir('cogs'):
     if filename.endswith('.py'):
         bot.load_extension(f'cogs.{filename[:-3]}')
 
-bot.run('YOUR TOKEN HERE')
+try: 
+    bot.run('YOUR TOKEN HERE')
+except KeyboardInterrupt:
+    bot.get_cog("hmm").conn.close()
+    bot.quit()

@@ -1,9 +1,11 @@
 import re
-import discord
-import json
 import os 
 import discord
+import random
+import sqlite3
 from discord.ext import commands
+
+futureworld = 699465129145925673
 
 class Word():
     def __init__(self, word, re, emoji=None, file_extensions=None):
@@ -24,54 +26,62 @@ class Hmm(commands.Cog):
         Word("aaaahhhh", r"\ba+((r+)?g+)?h+\b", emoji="aaahhh"),
         Word("ok", r"\bo+k+((a+y+)|(ie+)|(ey))?\b"),
         Word("yes", r"\by+e+s+\b"),
-        Word("haha", r"(\b(b+a+|a+)?((h+a+)+))"),
-        Word("lmao", r"lm(f?)ao+"),
+        Word("haha", r"(\b(b+a+|a+)?((h+a+)+))\b"),
+        Word("lmao", r"lm(f?)ao+", emoji="😭"),
         Word("rofl", r"ro(t?)fl+", emoji="🤣"),
-        Word("lol", r"\bl((o|e|u)+l+)+\b"),
+        Word("lol", r"\bl((o|e|u)+l+)+\b", emoji="😂"),
         Word("no", r"\b(no+(p(e+)?)?)+(n)?\b"),
         Word("cade", r"\b(ca(de|t))(s)?|kitt(en|y|ie(s)?)|meow|nya(n)?\b"),
-        Word("choon", r"\bhttps://clyp.it/", file_extensions=["mp3", "wav", "ogg", "flac"]),
+        Word("afx", r"aphex|\bafx", emoji="licker"),
+        Word("cringe", r"\bcri+nge"),
+        Word("creep", r"\bcreep"),
+        Word("bruh", r"\bbru+h+\b"),
+        Word("reee", r"\br+e+\b"),
+        Word("choon", r"\bhttps://clyp.it/|https://soundcloud.com/", file_extensions=["mp3", "wav", "ogg", "flac"]),
     ]
 
     def __init__(self, bot):
         self.bot = bot
+        open('hmm.db', 'a+').close()
+        self.conn = sqlite3.connect('hmm.db', detect_types=sqlite3.PARSE_COLNAMES)
+        self.conn.row_factory = sqlite3.Row
+        self.c = self.conn.cursor()
+        self.create_user_table()
+        self.max_the_game_cooldown = 100
+        self.the_game_cooldowns = {}
+        self.init_servrers = []
         print("loaded hmm")
+
+    def create_user_table(self):
+            words = self.words
+            parameters = []
+            self.c.execute(
+                "CREATE TABLE IF NOT EXISTS users ( name text, id text, guild text )"
+            )
+            for word in words:
+                sql = "ALTER TABLE users ADD COLUMN {0} integer default 0".format(word.word)
+                try:
+                    self.c.execute(sql)
+                    print("added column {0}".format(word.word))
+                except Exception as e:
+                    print(e)
+            self.conn.commit()
 
     @commands.Cog.listener()
     async def on_ready(self):
         pass
 
-    @commands.command()
-    async def stats(self, ctx):
-        author = ctx.message.author
-        self.refresh_stats(author)
-        for mention in ctx.message.mentions:
-            author = mention
-        user = self.load_user_stats(author)
-        stats = []
-        if user:
-            stats = sorted(
-                    [key for key in user.keys() if user[key] > 0],
-                    key=lambda x: user[x],
-                    reverse=True
-            )
-        level = self.get_level(user)
-        print(level)
-
-        embed = discord.Embed(
-                title="{0} [Level {1}]".format(author.name, level),
-                color=self.choose_level_color(level)
-        )
-        for stat in stats:
-            embed.add_field(name=stat, value="lv. {}".format(user[stat]), inline=True,)
-        # await ctx.channel.send("Stats for {0.mention}:\n{1}"
-        #       .format(ctx.message.author, stats_string))
-        await ctx.channel.send(embed=embed)
+    @commands.Cog.listener()
+    async def on_guild_join(self, guild):
+        for user in guild.users:
+            self.load_user_stats(user)
 
     @commands.Cog.listener()
     async def on_message(self, message):   
         if message.author == self.bot.user:
             return         
+
+        await self.the_game(message)
 
         for word in self.words:
             if self.word_matches_message(word, message):
@@ -81,6 +91,161 @@ class Hmm(commands.Cog):
                 await self.level_user_for_word(word, message)
                 print("** done. \n")
 
+    async def the_game(self, message):
+        """ semi-randomly announce the game """
+        guild = message.guild.id
+        if guild not in self.the_game_cooldowns:
+            self.the_game_cooldowns[guild] = self.max_the_game_cooldown
+
+        p = random.randrange(3)
+        self.the_game_cooldowns[guild] = self.the_game_cooldowns[guild] - p
+
+        if self.the_game_cooldowns[guild] <= 0:
+            await message.channel.send("**the game**")
+            self.the_game_cooldowns[guild] = self.max_the_game_cooldown
+
+    @commands.command()
+    async def invite(self, ctx):
+        await ctx.channel.send("https://discord.com/api/oauth2/authorize?client_id=714976319921717268&permissions=8&scope=bot")
+
+    @commands.command()
+    async def stats(self, ctx):
+        author = ctx.message.author
+        # refresh user
+        self.load_user_stats(author)
+        for mention in ctx.message.mentions:
+            author = mention
+        user = self.load_user_stats(author)
+        stats = []
+        if user:
+            stats = sorted(
+                    [key for key in user.keys() if key in [word.word for word in self.words] and int(user[key]) > 0],
+                    key=lambda word: user[word],
+                    reverse=True
+            )
+            print(stats)
+        level = self.get_level(user)
+        print(level)
+
+        description = []
+        for stat in stats:
+            rank = "**{0}** - lv. {1}".format(stat, user[stat])
+            description.append(rank)
+
+        description = "\n".join(description)
+
+        embed = discord.Embed(
+                title="{0} [Level {1}]".format(author.name, level),
+                color=self.choose_level_color(level),
+                description=description
+        )
+        await ctx.channel.send(embed=embed)
+
+    @commands.command()
+    async def ranks(self, ctx, arg=None):
+        rank_chart_title = ""
+        if arg is None:
+            rank_chart_title = "Global power rankings"
+        elif arg in [word.word for word in self.words]:
+            rank_chart_title = "Rankings for {}".format(arg)
+        else:
+            await ctx.channel.send("Not a valid rankable stat.")
+            return
+        ranked_users = self.get_ranks(ctx, arg=arg)
+        if len(ranked_users) == 0:
+            await ctx.channel.send("There are no ranked users yet.")
+            return
+
+        # get top 10
+        image=self.bot.get_user(int(ranked_users[0]['id'])).avatar_url
+        description = []
+        for i in range(0, min(10, len(ranked_users))):
+            rank = None
+            mention = "<@{}>".format(ranked_users[i]['id'])
+            if not arg:
+                rank = self.get_level(ranked_users[i])
+            else:
+                rank = ranked_users[i][arg]
+            string = "**{0}: {1}** - lv. {2}".format(i + 1, mention, rank)
+            if i == 0:
+                string = "**👑: {1} - lv. {2}** ".format(i + 1, mention, rank)
+            description.append(string)
+
+        description = "\n".join(description)
+
+        embed = discord.Embed(
+                title=rank_chart_title,
+                color=discord.Color.gold(),
+                description=description
+        )       
+        embed.set_thumbnail(url=image)
+        await ctx.channel.send(embed=embed)
+
+    @commands.command()
+    async def rank(self, ctx):
+        author = ctx.message.author
+        member = None
+        arg = None
+        print('args')
+        for a in ctx.message.content.split(' '):
+            print(a)
+            if a in [word.word for word in self.words]:
+                print('hello')
+                arg = a
+
+
+        if ctx.message.mentions:
+            member = ctx.message.mentions[0]
+
+        whose = "Your" if not member else member.name + "'s"
+
+        if not member:
+            member = author 
+
+        self.load_user_stats(member)
+
+        rank = next(filter(lambda user: int(user['id']) == member.id, self.get_ranks(ctx, arg)))
+        print(rank)
+        if arg is None:
+            await ctx.channel.send("{1} global power level is {0}".format(self.get_level(rank), whose))
+        elif arg in [word.word for word in self.words]:
+            await ctx.channel.send("{2} {0} is level {1}".format(arg, rank[arg], whose))
+
+    def get_ranks(self, ctx, arg=None): 
+        guild = str(ctx.message.guild.id)
+        sql = "SELECT * FROM users WHERE guild=?"
+        users = []
+        self.c.execute(sql, (guild, ))
+        users = self.c.fetchall()
+
+        for user in users:
+            if not ctx.message.guild.get_member(int(user['id'])):
+                users.remove(user)
+
+        if arg:
+            users.sort(key=lambda user: user[arg], reverse=True)
+        else:
+            users.sort(key=lambda user: self.get_level(user), reverse=True)
+        return users
+
+    def load_json(self, member):
+        member_id = str(member.id)
+        guild_id = str(member.guild.id)
+        filename = "cogs/hmm/roles/" + guild_id + "/" + member_id + ".json"
+        stats = None
+        if os.path.exists(filename):
+            with open(filename, "r") as f:
+                js = f.read()
+                js = json.loads(js)
+                print(js)
+                if "stats" in js:
+                    stats = js["stats"]
+        else:
+            return
+        for key in stats.keys():
+            if key in [word.word for word in self.words]:
+                print("setting {} to {}".format(key, stats[key]))
+                self.update_user(member, key, (stats[key]))
 
     def word_matches_message(self, word, message):
         text = message.content
@@ -97,10 +262,10 @@ class Hmm(commands.Cog):
         print(word.word)
         author = message.author
         await self.level_up(author, word, message.channel)
+        fw_guild = await self.bot.fetch_guild(futureworld)
 
-        emoji = discord.utils.get(message.guild.emojis, name=(word.emoji))
+        emoji = discord.utils.get(fw_guild.emojis, name=(word.emoji))
         if emoji:
-            print(emoji)
             await message.add_reaction(emoji)
         else:
             await message.add_reaction(word.emoji)
@@ -127,7 +292,8 @@ class Hmm(commands.Cog):
         return discord.Color.default()
     
     def get_level(self, user):
-        stats = [user[stat] for stat in user.keys()]
+        # check each level
+        stats = [int(user[stat]) for stat in user.keys() if stat in [word.word for word in self.words]]
         if len(stats) > 0:
             overall_level = sum(stats)
         else:
@@ -137,7 +303,6 @@ class Hmm(commands.Cog):
     async def level_up(self, member, word, channel):
         user = self.load_user_stats(member)
         lvl = user[word.word] + 1
-        user[word.word] = lvl
         print(user)
 
         overall_level = self.get_level(user)
@@ -148,51 +313,36 @@ class Hmm(commands.Cog):
         if overall_level % 50 == 0 and overall_level > 0:
             await channel.send("Congrats, {0.mention}, you have reached an overall power level of {2}!!".format(member, word.word, overall_level))
 
-        self.save_user(member, user)
+        self.update_user(member, word.word, lvl)
 
-    def save_user(self, member, user_stats):
-        for word in self.words:
-            if word.word not in user_stats:
-                user_stats[word.word] = 0
-            else:
-                user_stats[word.word] = int(user_stats[word.word])
-
-        guild_id = str(member.guild.id)
+    def update_user(self, member, word, lvl):
+        # refresh user 
+        self.load_user_stats(member)
         member_id = str(member.id)
-        if not os.path.exists("cogs/hmm/roles/" + guild_id):
-            os.mkdir("cogs/hmm/roles/" + guild_id)
+        sql = """
+            UPDATE users
+            SET {0}=?
+            WHERE id=? AND guild=?;
+        """.format(word)
+        self.c.execute(sql, (int(lvl), str(member.id), str(member.guild.id),))
+        self.conn.commit()
 
-        filename = "cogs/hmm/roles/" + guild_id + "/" + member_id + ".json"
-
-        structure = { 
-                "name" : member.name,
-                "stats" : user_stats
-        }
-        data = json.dumps(structure)
-        # print(data)
-        with open(filename, "w") as f:
-            data = json.loads(data)
-            json.dump(data, f, indent=2, separators=(',', ': '))
 
     def load_user_stats(self, member):
-        guild_id = str(member.guild.id)
-        member_id = str(member.id)
-        filename = "cogs/hmm/roles/" + guild_id + "/" + member_id + ".json"
-        if os.path.exists(filename):
-            with open(filename, "r") as f:
-                js = f.read()
-                js = json.loads(js)
-                print(js)
-                if "stats" in js:
-                    return js["stats"]
+        sql = "SELECT * FROM users WHERE (id=? and guild=?)"
+        self.c.execute(sql, (str(member.id), str(member.guild.id),))
+        result = self.c.fetchone()
+        if result:
+            return result
         else:
-            self.save_user(member, {})
-            self.load_user_stats(member)
+            self.add_new_user_to_db(member)
+            return self.load_user_stats(member)
 
-    def refresh_stats(self, member):
-        user = self.load_user_stats(member)
-        self.save_user(member, user)
-        
+    def add_new_user_to_db(self, member):
+        sql = "INSERT INTO users (name, id, guild) VALUES (?, ?, ?)"
+        self.c.execute(sql, (member.name, str(member.id), member.guild.id))
+        self.conn.commit()
+
 
 def setup(bot):
     bot.add_cog(Hmm(bot))

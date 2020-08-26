@@ -52,7 +52,6 @@ class Hmm(commands.Cog):
 
     def create_user_table(self):
             words = self.words
-            parameters = []
             self.c.execute(
                 "CREATE TABLE IF NOT EXISTS hmm_stats ( name text, id text, guild text )"
             )

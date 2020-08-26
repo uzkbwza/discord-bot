@@ -27,9 +27,7 @@ class Hmm(commands.Cog):
         Word("ok", r"\bo+k+((a+y+)|(ie+)|(ey))?\b"),
         Word("yes", r"\by+e+s+\b"),
         Word("haha", r"(\b(b+a+|a+)?((h+a+)+))\b"),
-        Word("lmao", r"lm(f?)ao+", emoji="😭"),
         Word("rofl", r"ro(t?)fl+", emoji="🤣"),
-        Word("lol", r"\bl((o|e|u)+l+)+\b", emoji="😂"),
         Word("no", r"\b(no+(p(e+)?)?)+(n)?\b"),
         Word("cade", r"\b(ca(de|t))(s)?|kitt(en|y|ie(s)?)|meow|nya(n)?\b"),
         Word("afx", r"aphex|\bafx", emoji="licker"),
@@ -56,10 +54,10 @@ class Hmm(commands.Cog):
             words = self.words
             parameters = []
             self.c.execute(
-                "CREATE TABLE IF NOT EXISTS users ( name text, id text, guild text )"
+                "CREATE TABLE IF NOT EXISTS hmm_stats ( name text, id text, guild text )"
             )
             for word in words:
-                sql = "ALTER TABLE users ADD COLUMN {0} integer default 0".format(word.word)
+                sql = "ALTER TABLE hmm_stats ADD COLUMN {0} integer default 0".format(word.word)
                 try:
                     self.c.execute(sql)
                     print("added column {0}".format(word.word))
@@ -81,7 +79,8 @@ class Hmm(commands.Cog):
     async def on_message(self, message):   
         if message.author == self.bot.user:
             return         
-
+        
+        # print("{}: {}".format(message.author.name, message.content))
         await self.the_game(message)
 
         for word in self.words:
@@ -222,7 +221,7 @@ class Hmm(commands.Cog):
 
     def get_ranks(self, ctx, arg=None): 
         guild = str(ctx.message.guild.id)
-        sql = "SELECT * FROM users WHERE guild=?"
+        sql = "SELECT * FROM hmm_stats WHERE guild=?"
         users = []
         self.c.execute(sql, (guild, ))
         users = self.c.fetchall()
@@ -329,7 +328,7 @@ class Hmm(commands.Cog):
         self.load_user_stats(member)
         member_id = str(member.id)
         sql = """
-            UPDATE users
+            UPDATE hmm_stats
             SET {0}=?
             WHERE id=? AND guild=?;
         """.format(word)
@@ -338,7 +337,7 @@ class Hmm(commands.Cog):
 
 
     def load_user_stats(self, member):
-        sql = "SELECT * FROM users WHERE (id=? and guild=?)"
+        sql = "SELECT * FROM hm_stats WHERE (id=? and guild=?)"
         self.c.execute(sql, (str(member.id), str(member.guild.id),))
         result = self.c.fetchone()
         if result:
@@ -348,7 +347,7 @@ class Hmm(commands.Cog):
             return self.load_user_stats(member)
 
     def add_new_user_to_db(self, member):
-        sql = "INSERT INTO users (name, id, guild) VALUES (?, ?, ?)"
+        sql = "INSERT INTO hmm_stats (name, id, guild) VALUES (?, ?, ?)"
         self.c.execute(sql, (member.name, str(member.id), member.guild.id))
         self.conn.commit()
 

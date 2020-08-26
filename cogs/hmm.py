@@ -325,7 +325,6 @@ class Hmm(commands.Cog):
     def update_user(self, member, word, lvl):
         # refresh user 
         self.load_user_stats(member)
-        member_id = str(member.id)
         sql = """
             UPDATE hmm_stats
             SET {0}=?

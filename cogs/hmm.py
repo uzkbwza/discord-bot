@@ -47,8 +47,9 @@ class Hmm(commands.Cog):
         self.c = self.conn.cursor()
         self.create_user_table()
         self.max_the_game_cooldown = 100
-        self.the_game_cooldowns = {}
+        self.the_game_cooldowns = dict()
         self.init_servrers = []
+        self.combos = dict()
         print("loaded hmm")
 
     def create_user_table(self):
@@ -63,6 +64,9 @@ class Hmm(commands.Cog):
                     print("added column {0}".format(word.word))
                 except Exception as e:
                     print(e)
+            self.c.execute(
+                "CREATE TABLE IF NOT EXISTS hmm_combos ( name text, id text, guild text, highest integer default 0 )"
+            )
             self.conn.commit()
 
     @commands.Cog.listener()
@@ -113,7 +117,7 @@ class Hmm(commands.Cog):
     async def on_guild_join(self, guild):
         print("joined " + guild.name)
         for user in guild.users:
-            self.load_user_stats(user)
+            self.load_user_stats(user, "hmm_stats")
 
     @commands.Cog.listener()
     async def on_message(self, message):   
@@ -123,13 +127,18 @@ class Hmm(commands.Cog):
         # print("{}: {}".format(message.author.name, message.content))
         await self.the_game(message)
 
+        combo = False 
         for word in self.words:
             if self.word_matches_message(word, message):
+                combo = True
                 await self.bot.wait_until_ready()
                 print("sending")
                 print ("** leveling user {0} for:  \"{1}\"".format(message.author.name, message.content))
+                self.do_combo(message.guild, message.channel, message.author, word)
                 await self.level_user_for_word(word, message)
                 print("** done. \n")
+        if not combo:
+            await self.end_combo(message.guild, message.channel, message.author)
 
     async def the_game(self, message):
         """ semi-randomly announce the game """
@@ -160,10 +169,10 @@ class Hmm(commands.Cog):
     async def stats(self, ctx):
         author = ctx.message.author
         # refresh user
-        self.load_user_stats(author)
+        self.load_user_stats(author, "hmm_stats")
         for mention in ctx.message.mentions:
             author = mention
-        user = self.load_user_stats(author)
+        user = self.load_user_stats(author, "hmm_stats")
         stats = []
         if user:
             stats = sorted(
@@ -187,7 +196,42 @@ class Hmm(commands.Cog):
                 color=self.choose_level_color(level),
                 description=description
         )
+
+        combo = self.load_user_stats(author, "hmm_combos")["highest"]
+        print(combo)
+        embed.add_field(name="Highest combo", value = combo, inline=True)
         await ctx.channel.send(embed=embed)
+
+    @commands.command()
+    async def combos(self, ctx):
+        rank_chart_title = "Global combo rankings"
+        ranked_users = self.get_combos(ctx)
+        if len(ranked_users) == 0:
+            await ctx.channel.send("There are no ranked users yet.")
+            return
+
+        # get top 10
+        image=self.bot.get_user(int(ranked_users[0]['id'])).avatar_url
+        description = []
+        for i in range(0, min(10, len(ranked_users))):
+            rank = None
+            mention = "<@{}>".format(ranked_users[i]['id'])
+            rank = ranked_users[i]["highest"]
+            string = "**{0}: {1}** - highest combo: {2}".format(i + 1, mention, rank)
+            if i == 0:
+                string = "**👑: {1} - highest combo: {2}** ".format(i + 1, mention, rank)
+            description.append(string)
+
+        description = "\n".join(description)
+
+        embed = discord.Embed(
+                title=rank_chart_title,
+                color=discord.Color.gold(),
+                description=description
+        )       
+        embed.set_thumbnail(url=image)
+        await ctx.channel.send(embed=embed)
+
 
     @commands.command()
     async def ranks(self, ctx, arg=None):
@@ -250,7 +294,7 @@ class Hmm(commands.Cog):
         if not member:
             member = author 
 
-        self.load_user_stats(member)
+        self.load_user_stats(member, "hmm_stats")
 
         rank = next(filter(lambda user: int(user['id']) == member.id, self.get_ranks(ctx, arg)))
         print(rank)
@@ -258,6 +302,38 @@ class Hmm(commands.Cog):
             await ctx.channel.send("{1} global power level is {0}".format(self.get_level(rank), whose))
         elif arg in [word.word for word in self.words]:
             await ctx.channel.send("{2} {0} is level {1}".format(arg, rank[arg], whose))
+
+    def do_combo(self, guild, channel, member, word):
+        key = "-".join(map(str,[guild.id, channel.id, member.id]))
+        if key not in self.combos:
+            self.combos[key] = 0
+
+        self.combos[key] += 1
+
+    async def end_combo(self, guild, channel, member):
+        key = "-".join(map(str,[guild.id, channel.id, member.id]))
+        if key in self.combos:
+            combo = self.combos.pop(key)
+            highest = self.load_user_stats(member, "hmm_combos")["highest"]
+            if combo > highest:
+                self.update_user_combo(member, guild, combo)
+            if combo >= 5:
+                await channel.send("Wow! Nice job on that {0} streak combo, {1.mention}!".format(combo, member))
+
+    def get_combos(self, ctx): 
+        guild = str(ctx.message.guild.id)
+        sql = "SELECT * FROM hmm_combos WHERE guild=?"
+        users = []
+        self.c.execute(sql, (guild, ))
+        users = self.c.fetchall()
+
+        for user in users:
+            if not ctx.message.guild.get_member(int(user['id'])):
+                users.remove(user)
+
+        users.sort(key=lambda user: user["highest"], reverse=True)
+        return users
+
 
     def get_ranks(self, ctx, arg=None): 
         guild = str(ctx.message.guild.id)
@@ -315,10 +391,13 @@ class Hmm(commands.Cog):
         emoji = discord.utils.get(fw_guild.emojis, name=(word.emoji))
         if not react:
             return
-        if emoji:
-            await message.add_reaction(emoji)
-        else:
-            await message.add_reaction(word.emoji)
+        try:
+            if emoji:
+                await message.add_reaction(emoji)
+            else:
+                await message.add_reaction(word.emoji)
+        except:
+            print("could not add emoji, ignoring")
             
     def choose_level_color(self, lvl):
         if lvl >= 1000:
@@ -351,7 +430,7 @@ class Hmm(commands.Cog):
         return overall_level
 
     async def level_up(self, member, word, channel):
-        user = self.load_user_stats(member)
+        user = self.load_user_stats(member, "hmm_stats")
 
         lvl = user[word.word] + 1
 
@@ -367,14 +446,14 @@ class Hmm(commands.Cog):
 
 
     async def level_down(self, member, word):
-        user = self.load_user_stats(member)
+        user = self.load_user_stats(member, "hmm_stats")
         lvl = user[word.word] - 1
         if lvl >= 0:
             self.update_user(member, word.word, lvl)
 
     def update_user(self, member, word, lvl):
         # refresh user 
-        self.load_user_stats(member)
+        self.load_user_stats(member, "hmm_stats")
         sql = """
             UPDATE hmm_stats
             SET {0}=?
@@ -383,21 +462,32 @@ class Hmm(commands.Cog):
         self.c.execute(sql, (int(lvl), str(member.id), str(member.guild.id),))
         self.conn.commit()
 
+    def update_user_combo(self, member, guild, streak):
+        # refresh user 
+        self.load_user_stats(member, "hmm_combos")
+        sql = """
+            UPDATE hmm_combos 
+            SET highest=?
+            WHERE id=? AND guild=?;
+        """
+        self.c.execute(sql, (streak, str(member.id), str(guild.id),))
+        self.conn.commit()
 
-    def load_user_stats(self, member):
-        sql = "SELECT * FROM hmm_stats WHERE (id=? and guild=?)"
+    def load_user_stats(self, member, db_name):
+        sql = "SELECT * FROM {} WHERE (id=? and guild=?)".format(db_name)
         self.c.execute(sql, (str(member.id), str(member.guild.id),))
         result = self.c.fetchone()
         if result:
             return result
         else:
-            self.add_new_user_to_db(member)
-            return self.load_user_stats(member)
+            self.add_new_user_to_db(member, db_name) 
+            return self.load_user_stats(member, db_name)
 
-    def add_new_user_to_db(self, member):
-        sql = "INSERT INTO hmm_stats (name, id, guild) VALUES (?, ?, ?)"
+    def add_new_user_to_db(self, member, db_name):
+        sql = "INSERT INTO {} (name, id, guild) VALUES (?, ?, ?)".format(db_name)
         self.c.execute(sql, (member.name, str(member.id), member.guild.id))
         self.conn.commit()
+
 
 
 def setup(bot):

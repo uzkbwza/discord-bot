@@ -36,6 +36,7 @@ class Hmm(commands.Cog):
         Word("creep", r"\bcreep"),
         Word("bruh", r"\bbru+h+\b"),
         Word("reee", r"\br+e+\b"),
+        Word("❤️", r"(❤️)|(:heart:)|(<3)|(❤️)"),
         Word("choon", r"\bhttps://clyp.it/|https://soundcloud.com/", file_extensions=["mp3", "wav", "ogg", "flac"]),
     ]
 
@@ -74,6 +75,7 @@ class Hmm(commands.Cog):
             return
         message = reaction.message
         stat = ""
+        print(reaction.emoji)
         if isinstance(reaction.emoji, str):
             stat = reaction.emoji
         else:
@@ -115,6 +117,7 @@ class Hmm(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message):   
+        print(message.content)
         if message.author == self.bot.user:
             return         
         

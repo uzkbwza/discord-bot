@@ -4,6 +4,7 @@ import discord
 import random
 import sqlite3
 from discord.ext import commands
+import db
 
 futureworld = 699465129145925673
 
@@ -41,8 +42,7 @@ class Hmm(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         open('hmm.db', 'a+').close()
-        self.conn = sqlite3.connect('hmm.db', detect_types=sqlite3.PARSE_COLNAMES)
-        self.conn.row_factory = sqlite3.Row
+        self.conn = db.conn
         self.c = self.conn.cursor()
         self.create_user_table()
         self.max_the_game_cooldown = 100
@@ -67,6 +67,45 @@ class Hmm(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         pass
+
+    @commands.Cog.listener()
+    async def on_reaction_add(self, reaction, user):
+        if user == self.bot.user or user == reaction.message.author:
+            return
+        message = reaction.message
+        stat = ""
+        if isinstance(reaction.emoji, str):
+            stat = reaction.emoji
+        else:
+            stat = reaction.emoji.name
+        for word in self.words:
+            if word.emoji == stat:
+                await self.bot.wait_until_ready()
+                print("sending")
+                print ("** leveling user {0} for:  \"{1}\"".format(message.author.name, message.content))
+                await self.level_user_for_word(word, message, react=False)
+                print("** done. \n")
+
+    @commands.Cog.listener()
+    async def on_reaction_remove(self, reaction, user):
+        if user == self.bot.user or user == reaction.message.author:
+            return
+
+        message = reaction.message
+        stat = ""
+        if isinstance(reaction.emoji, str):
+            stat = reaction.emoji
+        else:
+            stat = reaction.emoji.name
+
+        for word in self.words:
+            if word.emoji == stat:
+                await self.bot.wait_until_ready()
+                print("sending")
+                print ("** leveling down user {0} for:  \"{1}\"".format(message.author.name, message.content))
+                await self.level_down(message.author, word)
+                print("** done. \n")
+
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
@@ -265,13 +304,15 @@ class Hmm(commands.Cog):
                         return True
         return False
 
-    async def level_user_for_word(self, word, message):
+    async def level_user_for_word(self, word, message, react=True):
         print(word.word)
         author = message.author
         await self.level_up(author, word, message.channel)
         fw_guild = await self.bot.fetch_guild(futureworld)
 
         emoji = discord.utils.get(fw_guild.emojis, name=(word.emoji))
+        if not react:
+            return
         if emoji:
             await message.add_reaction(emoji)
         else:
@@ -309,10 +350,12 @@ class Hmm(commands.Cog):
 
     async def level_up(self, member, word, channel):
         user = self.load_user_stats(member)
-        lvl = user[word.word] + 1
-        print(user)
 
-        overall_level = self.get_level(user)
+        lvl = user[word.word] + 1
+
+        overall_level = self.get_level(user) + 1
+        print(lvl, overall_level)
+        self.update_user(member, word.word, lvl)
 
         if lvl % 25 == 0 and lvl > 0 and (lvl % 50 == 0 or lvl < 100) or lvl == 10:
             await channel.send("Congrats, {0.mention}, you have advanced to {1} level {2}!".format(member, word.word, lvl))
@@ -320,7 +363,12 @@ class Hmm(commands.Cog):
         if overall_level % 50 == 0 and overall_level > 0:
             await channel.send("Congrats, {0.mention}, you have reached an overall power level of {2}!!".format(member, word.word, overall_level))
 
-        self.update_user(member, word.word, lvl)
+
+    async def level_down(self, member, word):
+        user = self.load_user_stats(member)
+        lvl = user[word.word] - 1
+        if lvl >= 0:
+            self.update_user(member, word.word, lvl)
 
     def update_user(self, member, word, lvl):
         # refresh user 

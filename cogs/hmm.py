@@ -335,7 +335,7 @@ class Hmm(commands.Cog):
 
 
     def load_user_stats(self, member):
-        sql = "SELECT * FROM hm_stats WHERE (id=? and guild=?)"
+        sql = "SELECT * FROM hmm_stats WHERE (id=? and guild=?)"
         self.c.execute(sql, (str(member.id), str(member.guild.id),))
         result = self.c.fetchone()
         if result:
